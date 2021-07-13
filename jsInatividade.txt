@@ -1,0 +1,470 @@
+$(document).ready(function () {
+    path = $(location).attr('pathname');
+    if (path === '/Inatividade/SimuladorInavitidade' || path === '/Averbacao/Averbacao') {
+        dadosDataPosse();
+        habilitarCalendario();
+
+    }
+});
+
+function monitorTelaInatividade() {
+    limparCamposInatividade()
+    dadosDataPosse();
+
+}
+
+function dadosDataPosse() {
+    $("#inatividadeDtPosse").val('');
+    $("#inatividadeDtHoje").val('');
+    requisicaoAssincrona("POST", "../Inatividade/DadosDataPosse", "", resultDadosDataPosse, faultDadosDataPosse);
+}
+
+
+function resultDadosDataPosse(json) {
+
+    let dataPosse = JSON.parse(json.DadosPesq);
+    let posse = dataPosse[0].POSSE;
+    var dataAtual = new Date();
+
+    //preenche os campos de contagem de tempo de serviço
+    $("#inatividadeDtPosse").val(posse);
+    $("#inatividadeDtHoje").val(moment(dataAtual).format('DD/MM/YYYY'));
+
+    $("#inatividadeBtnCalcular").off("click")
+    $("#inatividadeBtnCalcular").on('click', function () {
+        CapturarDados()
+    });
+}
+
+function faultDadosDataPosse() {
+    //TipoErro('600');
+}
+
+
+
+
+
+//FUNÇÃO CAPTURA DADOS DA TELA
+function CapturarDados() {
+    var dataDePosse = formataData($("#inatividadeDtPosse").val());
+    var dataHoje = formataData($("#inatividadeDtHoje").val());
+    var quantidadeDiasFAA = $("#inatividadeQtDiasFAA").val();
+    var quantidadeDiasCLT = $("#inatividadeQtDiasAverbarCLT").val();
+    var quantidadeDiasDeduzir = $("#inatividadeQtDiasDeduzir").val();
+
+    if (quantidadeDiasCLT > 1825) {
+        quantidadeDiasCLT = 1825;
+        TipoErro(2000);
+    };
+
+    if (quantidadeDiasDeduzir == '') {
+        quantidadeDiasDeduzir = 0;
+    };
+
+    if (quantidadeDiasCLT == '') {
+        quantidadeDiasCLT = 0;
+    };
+
+    if (quantidadeDiasFAA == '') {
+        quantidadeDiasFAA = 0;
+    };
+
+    
+    var diasTrabalhPMESP = CalculaDiasTrabAtual(dataDePosse, dataHoje)
+    $("#inatividadeTotalDiasAtual").val(diasTrabalhPMESP);
+    var popularDiaMesAno = CalculaAnoMesDiaAtual(diasTrabalhPMESP);
+    $("#lbInatividadeQtTotalDiasAtual").empty();
+    $("#lbInatividadeQtTotalDiasAtual").append(popularDiaMesAno);
+
+    var diasTrabalhados2021 = CalculaDiasTrabEm2021(dataDePosse);
+
+    var data30Anos = CalcularDataCompletaTrintaAnos(dataDePosse)
+    $("#inatividadeDtPrevInativTrinta").val(data30Anos);
+
+    var data25anos = CalcularDataCompletaVinteCincoAnos(dataDePosse)
+    $("#inatividadeDtPrevInativVinteCinco").val(data25anos);
+
+
+    var diasAverbados = CalcularDiasAverbados(quantidadeDiasFAA, quantidadeDiasCLT, quantidadeDiasDeduzir)
+
+
+    var diasPedagio = CalcularPedagio(diasTrabalhados2021, diasAverbados)
+    $("#inatividadePedagioTrans1").val(diasPedagio);
+
+    var popularDiaMesAnoPedagio = CalculaAnoMesDiaPedagio(diasPedagio) 
+    $("#lblPedagio").empty();
+    $("#lblPedagio").append(popularDiaMesAnoPedagio);
+
+
+    var DataFinal30Anos = DataTrintaAnosComPedagio(diasPedagio, data30Anos, diasAverbados, diasTrabalhPMESP)
+
+    var dataAtividadeMilitar = DataVinteCincoAnos(dataDePosse, quantidadeDiasFAA)
+    $("#inatividadeDtInativVinteCincoTrans2").val(dataAtividadeMilitar);
+    $("#lbIinatividadeDtPrevInativVinteCincoTrans2").empty();
+    $("#lbIinatividadeDtPrevInativVinteCincoTrans2").append('Tempo de atividade militar (§ Único)')
+
+
+    var TotalAdd = CalcularRequisito(dataAtividadeMilitar)
+    $("#inatividadeRequisitoTrans2").val(TotalAdd);
+
+    var popularDiaMesAnoRequisito = CalculaAnoMesDiaRequisito(TotalAdd)
+    $("#lblRequisitoAnoMesDia").empty();
+    $("#lblRequisitoAnoMesDia").append(popularDiaMesAnoRequisito);
+    
+
+    var DataFinal25Anos = CalcularDataFinal25Anos(dataAtividadeMilitar, TotalAdd, quantidadeDiasDeduzir)
+    destaque(DataFinal30Anos, DataFinal25Anos);
+}
+
+
+// FUNÇÃO CALCULAR TOTAL DE DIAS TRABALHADOS ATÉ A DATA ATUAL
+function CalculaDiasTrabAtual(dataDePosse, dataHoje) {
+
+    var dateNow = new Date(dataHoje);
+    var datePosse = new Date(dataDePosse);
+    var timeDiff = Math.abs(dateNow.getTime() - datePosse.getTime());
+    var diasTrabalhPMESP = Math.round(timeDiff / (1000 * 3600 * 24));
+
+
+    //==============
+    //Acrescenta 1 ao final do cálculo, se ano atual for bissexto e a data atual for maior ou igual que 29FEV
+    var dataAtual = moment();
+    var anoAtual = dataAtual.get("year");
+    var dataRef = moment(anoAtual + "-02-29");
+    if ((anoAtual % 4 == 0) && ((anoAtual % 100 != 0) || (anoAtual % 400 == 0)) && dataAtual >= dataRef) {
+        diasTrabalhPMESP = diasTrabalhPMESP + 1;
+    }
+    //==============
+
+    return diasTrabalhPMESP;
+
+};
+
+
+// FUNÇÃO CALCULAR TOTAL DE DIAS TRABALHADOS EM 2021
+function CalculaDiasTrabEm2021(dataDePosse) {
+
+    var data2021 = new Date('01-01-2021');//formato MM/DD/YYYY;
+    var datePosse = new Date(dataDePosse);
+    var timeDiff2 = Math.abs(data2021.getTime() - datePosse.getTime());
+    var diasTrabalhados2021 = Math.abs(timeDiff2 / (1000 * 3600 * 24));
+    diasTrabalhados2021 = diasTrabalhados2021 + 1;
+
+    return diasTrabalhados2021;
+};
+
+
+// SEPARA QUANTIDADE DE DIAS EM ANOS MES E DIAS (DIAS TRABALHADOS ATUAIS)
+function CalculaAnoMesDiaAtual(diasTrabalhPMESP) {
+
+    var days = 0;
+    var month = 0;
+    var year = 0;
+    var numberDaysMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+    var j = 0;
+
+    for (var i = 0; diasTrabalhPMESP >= j; i++) {
+        if (i == 12) {
+            i = 0;
+            year += + 1;
+        }
+
+        days = diasTrabalhPMESP - j
+
+        j += numberDaysMonth[i];
+
+        month = i;
+
+    }
+
+    var qtde = val = (Math.trunc(year) + " ano(s) " + Math.trunc(month) + " mes(es) " + Math.trunc(days) + " dia(s)").toString();
+
+    return qtde
+
+}
+
+
+function CalculaAnoMesDiaPedagio(diasPedagio) {
+    var days = 0;
+    var month = 0;
+    var year = 0;
+    var numberDaysMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+    var j = 0;
+
+    for (var i = 0; diasPedagio >= j; i++) {
+        if (i == 12) {
+            i = 0;
+            year += + 1;
+        }
+
+        days = diasPedagio - j
+
+        j += numberDaysMonth[i];
+
+        month = i;
+
+    }
+
+    var qtde = val = (Math.trunc(year) + " ano(s) " + Math.trunc(month) + " mes(es) " + Math.trunc(days) + " dia(s)").toString();
+
+    return qtde
+
+}
+
+function CalculaAnoMesDiaRequisito(TotalAdd) {
+    var days = 0;
+    var month = 0;
+    var year = 0;
+    var numberDaysMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    var j = 0;
+
+    for (var i = 0; TotalAdd >= j; i++) {
+        if (i == 12) {
+            i = 0;
+            year += + 1;
+        }
+
+        days = TotalAdd - j
+
+        j += numberDaysMonth[i];
+
+        month = i;
+
+    }
+
+    var qtde = val = (Math.trunc(year) + " ano(s) " + Math.trunc(month) + " mes(es) " + Math.trunc(days) + " dia(s)").toString();
+
+    return qtde
+
+}
+
+// CALCULAR DATA EM QUE COMPLETA 30 ANOS DE SERVIÇO
+function CalcularDataCompletaTrintaAnos(dataDePosse) {
+
+    var dataParaCalculo = new Date(dataDePosse)
+    var datamiliseg = Date.parse(dataParaCalculo);
+    var data30anos = moment(datamiliseg);
+    data30anos.add(10950, 'd');
+    data30anos = moment(data30anos).format('DD/MM/YYYY');
+    return data30anos
+};
+
+// CALCULAR DATA EM QUE COMPLETA 25 ANOS DE SERVIÇO
+function CalcularDataCompletaVinteCincoAnos(dataDePosse) {
+
+    var dataParaCalculo = new Date(dataDePosse)
+    var datamiliseg = Date.parse(dataParaCalculo);
+    var data25anos = moment(datamiliseg);
+    data25anos.add(9125, 'd');
+    data25anos = moment(data25anos).format('DD/MM/YYYY');
+
+    return data25anos
+};
+
+
+//CALCULAR DIAS AVERBADOS
+function CalcularDiasAverbados(quantidadeDiasFAA, quantidadeDiasCLT, quantidadeDiasDeduzir) {
+
+    quantidadeDiasFAA = parseInt(quantidadeDiasFAA);
+    quantidadeDiasCLT = parseInt(quantidadeDiasCLT);
+    quantidadeDiasDeduzir = parseInt(quantidadeDiasDeduzir);
+
+    var DiasAverbadosTotal = quantidadeDiasFAA + quantidadeDiasCLT - quantidadeDiasDeduzir;
+
+    return DiasAverbadosTotal;
+}
+
+
+// CALCULAR PEDAGIO 17%
+function CalcularPedagio(diasTrabalhados2021, diasAverbados) {
+
+    var Dias = 10950 - diasTrabalhados2021 - diasAverbados;
+    Dias = Math.trunc(Dias);
+    porcentagem = parseFloat('17');
+    var NovoPedagio = Dias * (porcentagem / 100);
+    NovoPedagio = Math.trunc(NovoPedagio);
+    NovoPedagio = NovoPedagio + 1;
+
+    if (NovoPedagio < 0) {
+        NovoPedagio = 0
+    }
+
+    return NovoPedagio
+};
+
+
+
+// CALCULAR DATA 30 ANOS MAIS PEDAGIO
+function DataTrintaAnosComPedagio(diasPedagio, data30Anos, diasAverbados, diasTrabalhPMESP) {
+
+    data30Anos = new Date(formataData(data30Anos));
+    var datamiliseg = Date.parse(data30Anos);
+    var dataFinal = moment(datamiliseg);
+
+    dataFinal = dataFinal.subtract(diasAverbados, 'd');
+
+    dataFinal.add(diasPedagio, 'd');
+    dataFinal = moment(dataFinal).format('DD/MM/YYYY')
+
+    //Adiciona 2021 na data final Caso PM não tenha 20 anos de serviço
+    var dataCompara = Date.parse(new Date(formataData(dataFinal)));
+    var dataCompara2 = Date.parse("01/01/2021")
+    if (diasTrabalhPMESP < 7300 && dataCompara < dataCompara2) {
+        dataFinal = '01/01/2021'
+    }
+
+    return dataFinal;
+};
+
+
+
+
+
+// CALCULAR DATA 25 ANOS COM BASE NO  ART.24-G, § ÚNICO
+function DataVinteCincoAnos(dataDePosse, quantidadeDiasFAA) {
+    var tempoVinteCincoAnos = 9125;
+    var datePosse = new Date(dataDePosse);
+    quantidadeDiasFAA = parseInt(quantidadeDiasFAA);
+
+
+    if (quantidadeDiasFAA > 0) {
+
+        tempoVinteCincoAnos = tempoVinteCincoAnos - quantidadeDiasFAA;
+
+    }
+
+
+    var datamiliseg = Date.parse(datePosse);
+    var data25anos = moment(datamiliseg);
+    data25anos.add(tempoVinteCincoAnos, 'd');
+
+    var dataCompletaVinteCincoAnos = new Date(data25anos);
+    dataCompletaVinteCincoAnos = moment(dataCompletaVinteCincoAnos).format('DD/MM/YYYY')
+
+    return dataCompletaVinteCincoAnos
+
+}
+
+
+
+//CALCULAR REQUISITO 
+function CalcularRequisito(dataAtividadeMilitar) {
+    var anoValorRequisito = 0;
+    var quantidade = 0
+    dataAtividadeMilitar = new Date(formataData(dataAtividadeMilitar));
+    anoValorRequisito = dataAtividadeMilitar.getFullYear();
+
+    for (i = 2022; i <= anoValorRequisito; i++) {
+        quantidade++;
+    }
+
+    var totalFinal = quantidade * 120;
+
+    if (totalFinal > 1825) {
+        totalFinal = 1825;
+    } else {
+        totalFinal = totalFinal;
+    }
+
+    return totalFinal;
+
+}
+
+//CALCULAR DATA FINAL COM BASE NO ART.24-G, § ÚNICO
+function CalcularDataFinal25Anos(dataAtividadeMilitar, TotalAdd, quantidadeDiasDeduzir) {
+
+    dataAtividadeMilitar = new Date(formataData(dataAtividadeMilitar));
+    var datamiliseg = Date.parse(dataAtividadeMilitar);
+    var dataFinal = moment(datamiliseg);
+
+    dataFinal.add(TotalAdd, 'd');
+    dataFinal.add(quantidadeDiasDeduzir, 'd');
+    dataFinal = moment(dataFinal).format('DD/MM/YYYY')
+
+    return dataFinal;
+
+}
+
+// FUYNÇÃO FORMATAR DATA
+
+function formataData(data) {
+
+    var dia = data.substring(0, 2);
+    var mes = data.substring(3, 5);
+    var ano = data.substring(6, 10);
+    var dataRetorno = mes + "/" + dia + "/" + ano;
+
+    return dataRetorno;
+}
+
+
+
+
+//========================================================================================
+//========= FUNÇÕES POPULAR TELA  ========================================================
+//========================================================================================
+
+
+
+function destaque(DataFinal30Anos, DataFinal25Anos) {   
+    $("#inatividadeDtPrevInativTrans1").attr('style', "background-color:#FFFFFF");
+    $("#inatividadeDtInativTrans2").attr('style', "background-color:#FFFFFF");
+    $("#lbObservacao1").empty();    
+    $("#lbObservacao2").empty();
+    $("#lbObservacaoRequisito").empty();
+
+    Data25 = new Date(formataData(DataFinal25Anos));
+    Data30 = new Date(formataData(DataFinal30Anos));
+    Data2021 = new Date(formataData("01/01/2021"));
+    DataCompara25 = Date.parse(Data25);
+    DataCompara30 = Date.parse(Data30);
+    Data2021 = Date.parse(Data2021);
+    
+    if (DataCompara30 < Data2021) {
+        DataFinal30Anos = "01/01/2021";
+        $("#lbObservacaoRequisito").append("Não preenche requisitos  24-F do Decreto-Lei Federal Nº 667/69, alterado pela Lei Federal nº 13.954/19, combinado com o Decreto nº 64.743/20");
+
+    }
+
+    $("#inatividadeDtPrevInativTrans1").val(DataFinal30Anos);
+    $("#inatividadeDtInativTrans2").val(DataFinal25Anos);
+
+
+    if (DataCompara30 > DataCompara25) {
+        $("#inatividadeDtPrevInativTrans1").attr('style', "background-color:#98FB98");
+        $("#lbObservacao1").append("Você está classificado neste cálculo");
+    }
+    else {
+        $("#inatividadeDtInativTrans2").attr('style', "background-color:#98FB98");
+        $("#lbObservacao2").append("Você está classificado neste cálculo");
+
+    }   
+
+};
+
+
+
+
+function limparCamposInatividade() {
+
+    $("#inatividadeTotalDiasAtual").val('');
+    $("#lbInatividadeQtTotalDiasAtual").empty('');
+    $("#inatividadeDtPrevInativTrinta").val('');
+    $("#inatividadeDtPrevInativVinteCinco").val('');
+    $("#lbIinatividadeDtPrevInativVinteCinco").empty();
+    $("#inatividadePedagioTrans1").val('');
+    $("#inatividadeDtPrevInativTrans1").val('');
+    $("#inatividadeDtInativVinteCincoTrans2").val('');
+    $("#inatividadeRequisitoTrans2").val('');
+    $("#inatividadeDtInativTrans2").val('');
+    $("#lbIinatividadeDtPrevInativVinteCincoTrans2").empty(); 
+    $("#lblPedagio").empty();
+    $("#inatividadeDtPrevInativTrans1").attr('style', "background-color:#FFFFFF");
+    $("#inatividadeDtInativTrans2").attr('style', "background-color:#FFFFFF");
+    $("#lbObservacao1").empty();
+    $("#lbObservacao2").empty(); 
+    $("#lbObservacaoRequisito").empty();
+
+}
